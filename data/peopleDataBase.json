@@ -1,0 +1,6 @@
+[
+  { "peter": { "en": "Peter","ru": "Петр" },"image": "./images/peter.jpg" },
+  { "roma": { "en": "Roma","ru": "Рома" },"image": "./images/roma.jpg" },
+  { "izabella": { "en": "Izabella", "ru": "Изабелла" },"image": "./images/izabella.jpg" }
+]
+
