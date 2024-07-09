@@ -2,7 +2,7 @@ import sys
 import torch
 from transformers import BlipProcessor, BlipForQuestionAnswering
 from transformers import VitsModel, AutoTokenizer, AutoProcessor, BarkModel
-# Load model directly
+# Load image_clsf_model directly
 import numpy as np
 from datasets import load_dataset
 import scipy
@@ -17,6 +17,11 @@ import json
 import os
 import io
 import random
+from transformers import AutoModelForCausalLM
+from compreface import CompreFace
+from compreface.service import RecognitionService
+from compreface.collections import FaceCollection
+from compreface.collections.face_collections import Subjects
 
 import sys
 # Adds the other directory to your python path.
@@ -24,7 +29,6 @@ sys.path.append("./crop/")
 sys.path.append("./crop/main/")
 sys.path.append("./crop/main/facecrop/")
 from crop.main.facecrop import FaceCrop
-
 
 def base64_to_image(base64_str):
     image_data = base64.b64decode(base64_str)
@@ -38,6 +42,7 @@ def encode_audio_to_base64(file_path):
 def without_keys(d, keys):
    return {x: d[x] for x in d if x not in keys}
 def combine_images(base64_image1, base64_image2):
+    
     # Convert base64 strings to images
     img1 = base64_to_image(base64_image1)
     img2 = base64_to_image(base64_image2)
@@ -133,16 +138,22 @@ application.wsgi_app = ProxyFix(
     application.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1
 )
 
-processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
-model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base").to("cuda")
-voiceTokenizeren = AutoTokenizer.from_pretrained("facebook/mms-tts-eng")
-voiceModelen = VitsModel.from_pretrained("facebook/mms-tts-eng").to("cuda")
-voiceTokenizerru = AutoTokenizer.from_pretrained("facebook/mms-tts-rus")
-voiceModelru = VitsModel.from_pretrained("facebook/mms-tts-rus").to('cuda')
 
-model.eval()
-voiceModelen.eval()
-voiceModelru.eval()
+compre_face: CompreFace = CompreFace('http://localhost','8050')
+
+recognition_service: RecognitionService = compre_face.init_face_recognition('2df50b47-0d98-4363-9899-cf683f184de0')
+image_clsf_processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
+image_clsf_model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base").to("cuda")
+voice_tokenizer_en = AutoTokenizer.from_pretrained("facebook/mms-tts-eng")
+voice_model_en = VitsModel.from_pretrained("facebook/mms-tts-eng").to("cuda")
+voice_tokenizer_ru = AutoTokenizer.from_pretrained("facebook/mms-tts-rus")
+voice_model_ru = VitsModel.from_pretrained("facebook/mms-tts-rus").to('cuda')
+
+llm_tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3-mini-128k-instruct-onnx", trust_remote_code=True)
+llm_model = AutoModelForCausalLM.from_pretrained("microsoft/Phi-3-mini-128k-instruct-onnx", trust_remote_code=True)
+image_clsf_model.eval()
+voice_model_en.eval()
+voice_model_ru.eval()
 
 @application.route('/facecrop', methods=['POST'])
 def facecrop():
@@ -155,18 +166,24 @@ def facecrop():
          
     aurus = base64.b64decode(image_data)
     pred = io.BytesIO(aurus)
-    image = Image.open(pred)
+    image = Image.open(image_data)
+    
     image.save('./temp/temp.jpg')
     # parameters = {"width": "60", "height": "60", "width_asy": "0", "height_asy": "0", "tag": "", "folder_option": False, "single_face_option": True}
-    face_crop = FaceCrop(width= 60, height= 60, width_asy= 0, height_asy= 0, tag= "")
+    face_crop = FaceCrop(width= 300, height= 250, width_asy= 0, height_asy= 0, tag= "")
     # face_crop.__init__(**parameters)
-    image=  face_crop.crop_save('./temp/temp.jpg','./temp', './tempout', preview=True)
-    buffered = io.BytesIO()
+    image =  face_crop.crop_save('./temp/temp.jpg','./temp', './tempout', preview=True)
+    if image is None:
+        return jsonify({'error': 'No face detected'}), 400
+    # print(image)
+    image.show()
+    imgBytes=  image.tobytes()
+    buffered = io.BytesIO(imgBytes)
     image.save(buffered, format="JPEG")
-    print(image)
+    # print(buffered)
     img_bytes = buffered.getvalue()
-    
-    payload = { "image": base64.b64encode(img_bytes).decode('utf-8')}   
+
+    payload = { "image": base64.b64encode(imgBytes).decode('utf-8')}   
 
     return jsonify(payload)
 
@@ -188,7 +205,7 @@ def voice():
     with open(file_path, 'r', encoding='utf-8') as file:
         db = json.load(file)
   
-    if (answer == 'no' and 'no' in db[language][theme]):
+    if (answer == 'no' and 'no' not in db[language][theme]):
         return jsonify({"audio":'null'})
        
     text =  random.choice(db[language][theme][answer]) + str(name)
@@ -198,22 +215,22 @@ def voice():
 
 # Set pad_token_id
     if (language == 'ru'):
-        inputs = voiceTokenizerru(text=str(text), return_tensors="pt").to('cuda')
+        inputs = voice_tokenizer_ru(text=str(text), return_tensors="pt").to('cuda')
         with torch.no_grad():
 
-            outputs = voiceModelru(**inputs).waveform
+            outputs = voice_model_ru(**inputs).waveform
             
             audio_array = outputs.cpu().numpy().squeeze()
 
-            encodedAudio = encode_audio_array_to_base64(audio_array ,rate=voiceModelru.config.sampling_rate)
+            encodedAudio = encode_audio_array_to_base64(audio_array ,rate=voice_model_ru.config.sampling_rate)
     else:
-        inputs = voiceTokenizeren(text=str(text), return_tensors="pt", ).to('cuda')
+        inputs = voice_tokenizer_en(text=str(text), return_tensors="pt", ).to('cuda')
         with torch.no_grad():
 
-            outputs = voiceModelen(**inputs).waveform
+            outputs = voice_model_en(**inputs).waveform
             audio_array = outputs.cpu().numpy().squeeze()
 
-            encodedAudio = encode_audio_array_to_base64(audio_array ,rate=voiceModelen.config.sampling_rate)
+            encodedAudio = encode_audio_array_to_base64(audio_array ,rate=voice_model_en.config.sampling_rate)
 
     
     
@@ -279,10 +296,11 @@ def process_image():
         application.logger.error(f"Error decoding image: {e}")
         return jsonify({'error': str(e)}), 400
     print(str(text))
-    inputs = processor(image, str(text), return_tensors="pt").to("cuda")
-    out = model.generate(**inputs)
+    inputs = image_clsf_processor(image, str(text), return_tensors="pt").to("cuda")
+    out = image_clsf_model.generate(**inputs)
     # image.show()  
-    answer  = processor.decode(out[0], skip_special_tokens=True)
+    answer  = image_clsf_processor.decode(out[0], skip_special_tokens=True)
+    print(answer)
     return jsonify({'answer': answer })
 
 @application.route('/compare', methods=['POST'])
@@ -302,13 +320,12 @@ def compare():
     file_path = os.path.join('.', 'data', 'phraseDataBase.json')
     with open(file_path, 'r', encoding='utf-8') as file:
         db = json.load(file)
-    file_path = os.path.join('.', 'data', 'peopleDataBase.json')
-    with open(file_path, 'r', encoding='utf-8') as file:
-        ppldb = json.load(file)
+    
     
     question =  db['en']['facerecognition']['question']
-    secindImage =  image_to_base64(str('./data/images/'+str(name).lower()+'.jpg'))
-    combined = combine_images(image_data,secindImage )
+    print(str(name))
+    second_image_data =  image_to_base64(str('./data/images/'+str(name).lower()+'.jpg'))
+    combined = combine_images(image_data,second_image_data )
     try:
         
         
@@ -321,9 +338,80 @@ def compare():
         return jsonify({'error': str(e)}), 400
     print(question)
 
-    inputs = processor(image, question, return_tensors="pt", padding=True).to("cuda")
-    out = model.generate(**inputs)
+    inputs = image_clsf_processor(image, question, return_tensors="pt", padding=True).to("cuda")
+    out = image_clsf_model.generate(**inputs)
     # image.show()  
-    answer  = processor.decode(out[0], skip_special_tokens=True)
+    answer  = image_clsf_processor.decode(out[0], skip_special_tokens=True)
+    print(answer)
     return jsonify({'answer': answer })
 
+@application.route('/analyzeMoment', methods=['POST'])
+def process_image():
+    data = request.json
+    
+    theme = data.get('theme')
+    image_data = data.get('image')
+    language = data.get('language')
+   
+    # f = open('./data/phraseDataBase.json')
+   
+    # returns JSON object as 
+    # a dictionary
+    db={}
+    
+    file_path = os.path.join('.', 'data', 'phraseDataBase.json')
+    with open(file_path, 'r', encoding='utf-8') as file:
+        db = json.load(file)
+    themes = []
+    for key in db['en'].keys(): 
+        themes.append(key)
+        
+    themes.remove('facerecognition')
+
+    
+    text = 'what does a person do in this moment? Choose from the following options: ' + ', '.join(themes)
+
+    # image_to_base64('./images/')
+    try:
+        
+        
+        aurus = base64.b64decode(image_data)
+        pred = io.BytesIO(aurus)
+        image = Image.open(pred) 
+
+    except Exception as e:
+        application.logger.error(f"Error decoding image: {e}")
+        return jsonify({'error': str(e)}), 400
+    print(str(text))
+    inputs = image_clsf_processor(image, str(text), return_tensors="pt").to("cuda")
+    out = image_clsf_model.generate(**inputs)
+    # image.show()  
+    answer  = image_clsf_processor.decode(out[0], skip_special_tokens=True)
+    print(answer)
+    return jsonify({'answer': answer })
+
+@application.route('/recognize', methods=['POST'])
+def compare():
+    data = request.json
+    
+    image_data = data.get('image')
+    
+    
+   
+    try:
+        
+        
+        aurus = base64.b64decode(image_data)
+        pred = io.BytesIO(aurus)
+        image = Image.open(pred) 
+
+    except Exception as e:
+        application.logger.error(f"Error decoding image: {e}")
+        return jsonify({'error': str(e)}), 400
+    recres = recognition_service.recognize(image=image)
+    # inputs = image_clsf_processor(image, question, return_tensors="pt", padding=True).to("cuda")
+    # out = image_clsf_model.generate(**inputs)
+    # image.show()  
+    # answer  = image_clsf_processor.decode(out[0], skip_special_tokens=True)
+    print(recres)
+    return jsonify({'answer': recres })

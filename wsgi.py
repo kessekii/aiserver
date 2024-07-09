@@ -1,5 +1,5 @@
 from waitress import serve
-from voice import application as voicer
+
 from app import application as server
 
 if __name__ == '__main__':
