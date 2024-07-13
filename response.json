@@ -1,0 +1,18 @@
+{
+  "result" : [ {
+    "box" : {
+      "probability" : 1.0,
+      "x_max" : 303,
+      "y_max" : 364,
+      "x_min" : 119,
+      "y_min" : 150
+    },
+    "subjects" : [ {
+      "subject" : "Izabella",
+      "similarity" : 0.71758
+    }, {
+      "subject" : "Peter",
+      "similarity" : 0.51072
+    } ]
+  } ]
+}

@@ -1,6 +1,6 @@
 {
   "en":{
-     "water":{
+     "drinking":{
         "question":"Is the person in the last photo actively drinking water? Answer with only 'yes' or 'no'.",
         "no":[
            "Don't forget to drink some water!",
@@ -72,6 +72,7 @@
            "Smoking is not good for you, please consider quitting."
         ]
      },
+     
      "facerecognition":{
         "question":"Are they the same?",
         "yes":[
@@ -89,7 +90,7 @@
      }
   },
   "ru":{
-     "water":{
+     "drinking":{
         "question":"Is the person in the last photo actively drinking water? Answer with only 'yes' or 'no'.",
         "no":[
            "Не хочешь выпить стакан воды?",
